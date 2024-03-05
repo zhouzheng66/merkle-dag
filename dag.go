@@ -2,14 +2,14 @@ package merkledag
 
 import "hash"
 
-type IPFSLink struct {
+type Link struct {
 	Name string
 	Hash []byte
 	Size int
 }
 
 type Object struct {
-	Links []IPFSLink
+	Links []Link
 	Data  []byte
 }
 
