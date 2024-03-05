@@ -4,6 +4,17 @@ import (
 	"hash"
 )
 
+type Link struct {
+	Name string
+	Hash []byte
+	Size int
+}
+
+type Object struct {
+	Links []Link
+	Data  []byte
+}
+
 func Add(store KVStore, node Node, h hash.Hash) []byte {
 	// TODO 将分片写入到KVStore中，并返回Merkle Root
 	// 递归处理文件夹和文件，并将文件内容保存在 KVStore 中
