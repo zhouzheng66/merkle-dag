@@ -11,8 +11,9 @@ const (
 	K = 1 << 10
 	M = K << 10
 	CHUNK_SIZE = 256 * K
+	MAX_LISTLINE = 4096
 	BLOB = "blob"
-	LIST = "list"
+	LIST = "link"
 	TREE = "tree"
 )
 const (
@@ -31,95 +32,160 @@ type Object struct {
 
 func Add(store KVStore, node Node, h hash.Hash) []byte {
 	// TODO 将分片写入到KVStore中，并返回Merkle Root
-	
-	// 递归处理文件夹和文件，并将文件内容保存在 KVStore 中
 	return processNode(node, store, h)
 	
 }
 // 处理节点，返回默克尔树根
 func processNode(node Node, store KVStore, h hash.Hash) []byte {
-	obj := Object{}
+	obj := &Object{}
 	switch node.Type() {
 	case FILE:
-		hash,types :=  handleFile(node,store,h)
-		obj.Links = append(obj.Links, Link{Name: node.Name(), Hash: hash, Size: int(node.Size())})
-		obj.Data = append(obj.Data,types)
-		putObjInStore(&obj,store,h)
+		obj =  handleFile(node,store,h)
 		break
-		
 	case DIR:
-		hash :=  handleDir(node,store,h)
-		obj.Links = append(obj.Links,Link{Name: node.Name(), Hash: hash, Size: int(node.Size())})
-		obj.Data = append(obj.Data,TREE...)
-		putObjInStore(&obj,store,h)
-		break 
+		obj =  handleDir(node,store,h)
+		break	
 	}
-	return nil
-	
+	jsonObj, _ := json.Marshal(obj)
+	return computeHash(jsonObj,h)
 	
 }
- // 处理文件，返回文件的默克尔树根,和文件的类型
-func handleFile(node Node,store KVStore,h hash.Hash) ([]byte,byte){
-	obj := Object{}
+ // 处理文件，返回一个该文件对应的obj
+func handleFile(node Node,store KVStore,h hash.Hash) *Object{
+	obj := &Object{}
 	FileNode,ok := node.(File)
 		if !ok {
 			fmt.Println("error")
-		    return nil,byte(0)
+		    return nil
 		}
 		if FileNode.Size() > CHUNK_SIZE {
-			lowobj := Object{}
+
+			// lowobj := Object{}
 		    // 计算文件切片数量,向上取整
-		numChunks := uint64(math.Ceil(float64(FileNode.Size()) / float64(CHUNK_SIZE)))
-		for i := uint64(0);i<numChunks;i++{
-			// 当前分片大小
-			size := uint64(CHUNK_SIZE)
-			if i == numChunks -1 {
-				size =  FileNode.Size() - (i*CHUNK_SIZE)
+		numChunks := math.Ceil(float64(FileNode.Size()) / float64(CHUNK_SIZE))
+		height := 0
+		tmp := numChunks
+		// 计算出要分几层
+		for{
+			height++
+			tmp /= MAX_LISTLINE
+			if tmp == 0{
+			    break
 			}
-			chunk := FileNode.Bytes()[i*CHUNK_SIZE : (i+1)*size]
-			// 计算当前片的hash放入堆栈中，和放入存储器
-   			hash := computeHash(chunk, h)
-			lowobj.Links = append(obj.Links, Link{node.Name(), hash, int(size)})
-			lowobj.Data = append(obj.Data,BLOB...)
-			value,err := json.Marshal(lowobj)
-			if err != nil{
-				fmt.Println("json.Marshal err:",err)
-				return nil,byte(0)
-			}
-			store.Put(hash,value)
 		}
-		// hashes := getHashes(&lowobj)
-		// hash :=  computeMerkleRoot(hashes,h)
-		has := computeHash(json.Marshal(obj),h)
-		return hash,LIST...
+		obj,_ = dfshandleFile(height,FileNode,store,0,h)
 		}else{
-			hash := computeHash(FileNode.Bytes(), h)
-			return hash,BLOB...
-		}
+			obj.Data = FileNode.Bytes()
+			}
+		putObjInStore(obj,store,h)
+			return  obj
 	
 }
-// 处理文件夹，返回默克尔树根
-func handleDir(node Node,store KVStore,h hash.Hash) []byte{
-	// define tree 
-
-	obj := Object{Links : make([]Link ,0),Data : make([]byte,0)}
-	dirNode,ok := node.(Dir)
-	if !ok {
-		return  nil
-	} 
-	hashes := [][]byte{{},{}}
-	iter:= dirNode.It()
+// 处理文件夹，返回对应的obj指针
+func handleDir(node Node,store KVStore,h hash.Hash) *Object{
+	dirNode , _ := node.(Dir)
+	iter := dirNode.It()
+	treeObject := &Object{}
 	for iter.Next() {
-		hash :=  processNode(iter.Node(),store,h)
-		if hash != nil{
-		    hashes = append(hashes,hash)
+		node := iter.Node()
+		switch node.Type() {
+		case FILE :
+			file := node.(File)
+			tmp := handleFile(node, store, h)
+			jsonMarshal, _ := json.Marshal(tmp)
+			treeObject.Links = append(treeObject.Links, Link{
+				Hash: computeHash(jsonMarshal,h),
+				Size: int(file.Size()),
+				Name: file.Name(),
+			})
+			if tmp.Links == nil {
+				treeObject.Data = append(treeObject.Data, []byte(BLOB)...)
+			}else{
+				treeObject.Data = append(treeObject.Data, []byte(LIST)...)
+			}
+			
+			break
+		case DIR :
+			dir := node.(Dir)
+			tmp := handleDir(node, store, h)
+			putObjInStore(tmp,store,h)
+			jsonMarshal, _ := json.Marshal(tmp)
+			treeObject.Links = append(treeObject.Links, Link{
+				Hash: computeHash(jsonMarshal,h),
+				Size: int(dir.Size()),
+				Name: dir.Name(),
+			})
+			treeObject.Data = append(treeObject.Data, []byte(TREE)...)
+			break
 		}
 	}
-	hash :=computeMerkleRoot(hashes,h)
-	obj.Links = append(obj.Links, Link{node.Name(), hash, int(node.Size())})
-	obj.Data = append(obj.Data,TREE...)
-	putObjInStore(&obj,store,h)
-	return hash
+	putObjInStore(treeObject,store,h)
+	return treeObject
+}
+// 处理大文件的方法 递归调用，返回当前生成的obj已经处理了多少数据
+func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*Object,int) {
+	obj := &Object{}
+	lendata := 0
+	// 如果只分一层
+ if height == 1{
+	if(len(node.Bytes())- start < CHUNK_SIZE) {
+		data := node.Bytes()[start:]
+		obj.Data = append(obj.Data,data...)
+		lendata = len(data)
+		putObjInStore(obj,store,h)
+		return obj,lendata
+	}else{
+	for i := 1; i<= MAX_LISTLINE; i++{
+		end := start + CHUNK_SIZE
+		// 确保不越界
+		if end > len(node.Bytes()) {
+			end = len(node.Bytes())
+		}
+		data :=  node.Bytes()[start:end]
+		blobObj := Object{
+			Links : nil,
+			Data : data,
+		}
+		putObjInStore(&blobObj,store,h)
+		jsonMarshal,_ := json.Marshal(blobObj)
+		obj.Links = append(obj.Links,Link{
+			Hash: computeHash(jsonMarshal,h),
+			Size: int(len(data)),
+		})
+		obj.Data  = append(obj.Data,[]byte(BLOB)...)
+		lendata += len(data)
+		start = end
+		if start == len(node.Bytes()){
+		    break
+		}
+		putObjInStore(obj,store,h)
+		return obj,lendata
+	}
+	}
+ }else{
+	// 如果不只有一层
+	for i := 1 ;i<=MAX_LISTLINE;i++{
+		if start >= len(node.Bytes()){
+			break
+		}
+		tmpObj,tmpLendata := dfshandleFile(height-1,node,store,start,h)
+		lendata += tmpLendata
+		jsonMarshal,_ := json.Marshal(tmpObj)
+		obj.Links = append(obj.Links,Link{
+			Hash: computeHash(jsonMarshal,h),
+			Size: tmpLendata,
+		})
+		if(tmpObj.Links == nil){
+		obj.Data  = append(obj.Data,[]byte(BLOB)...)
+		}else{
+			obj.Data = append(obj.Data,[]byte(LIST)...)
+		}
+		start += tmpLendata
+	}
+	putObjInStore(obj,store,h)
+	return obj,lendata
+ }
+ return nil,0
 }
 
 func computeHash(data []byte, h hash.Hash) []byte {
@@ -136,33 +202,26 @@ func putObjInStore(obj *Object, store KVStore, h hash.Hash){
 	hash := computeHash(value, h)
 	store.Put(hash,value)
 }
-func getHashes(obj *Object) [][]byte {
- hashes := make([][]byte, len(obj.Links))
- for i, link := range obj.Links {
-  hashes[i] = link.Hash
- }
- return hashes
-}
-func computeMerkleRoot(data [][]byte, h hash.Hash) []byte {
-	if len(data) == 0{
-		return nil
-	}
-	if len(data) == 1{
-		return data[0]
-	}
-	var nextLevel [][]byte
-	// 对于相邻节点计算hash
-	for i := 0; i < len(data); i += 2 {
-	    // 确保不出界
-		end := i+2
-		if(end >len(data)){
-			end = len(data)
-		}
-		// 拼接两个叶子结点的hash
-		hash := computeHash(append(data[i], data[i+1]...), h)
-		nextLevel = append(nextLevel, hash[:])
-	}
-	// 递归计算下一层的默克尔树根
-	return computeMerkleRoot(nextLevel, h)
-}
+// func computeMerkleRoot(data [][]byte, h hash.Hash) []byte {
+// 	if len(data) == 0{
+// 		return nil
+// 	}
+// 	if len(data) == 1{
+// 		return data[0]
+// 	}
+// 	var nextLevel [][]byte
+// 	// 对于相邻节点计算hash
+// 	for i := 0; i < len(data); i += 2 {
+// 	    // 确保不出界
+// 		end := i+2
+// 		if(end >len(data)){
+// 			end = len(data)
+// 		}
+// 		// 拼接两个叶子结点的hash
+// 		hash := computeHash(append(data[i], data[i+1]...), h)
+// 		nextLevel = append(nextLevel, hash[:])
+// 	}
+// 	// 递归计算下一层的默克尔树根
+// 	return computeMerkleRoot(nextLevel, h)
+// }
 
