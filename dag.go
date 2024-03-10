@@ -41,27 +41,30 @@ func processNode(node Node, store KVStore, h hash.Hash) []byte {
 	obj := Object{}
 	switch node.Type() {
 	case FILE:
-		hash :=  handleFile(node,store,h)
+		hash,types :=  handleFile(node,store,h)
 		obj.Links = append(obj.Links, Link{Name: node.Name(), Hash: hash, Size: int(node.Size())})
-		obj.Data = append(obj.Data,)
-
+		obj.Data = append(obj.Data,types)
+		putObjInStore(&obj,store,h)
+		break
 		
 	case DIR:
 		hash :=  handleDir(node,store,h)
 		obj.Links = append(obj.Links,Link{Name: node.Name(), Hash: hash, Size: int(node.Size())})
-		obj.Data = append(obj.Data,LIST...)
+		obj.Data = append(obj.Data,TREE...)
+		putObjInStore(&obj,store,h)
+		break 
 	}
 	return nil
 	
 	
 }
- // 处理文件，返回文件的默克尔树根
-func handleFile(node Node,store KVStore,h hash.Hash) []byte{
+ // 处理文件，返回文件的默克尔树根,和文件的类型
+func handleFile(node Node,store KVStore,h hash.Hash) ([]byte,byte){
 	obj := Object{}
 	FileNode,ok := node.(File)
 		if !ok {
 			fmt.Println("error")
-		    return nil
+		    return nil,byte(0)
 		}
 		if FileNode.Size() > CHUNK_SIZE {
 			lowobj := Object{}
@@ -81,27 +84,25 @@ func handleFile(node Node,store KVStore,h hash.Hash) []byte{
 			value,err := json.Marshal(lowobj)
 			if err != nil{
 				fmt.Println("json.Marshal err:",err)
-				return nil
+				return nil,byte(0)
 			}
 			store.Put(hash,value)
 		}
-		hashes := getHashes(&lowobj)
-		hash :=  computeMerkleRoot(hashes,h)
-		obj.Links = append(obj.Links, Link{FileNode.Name(), hash, int(FileNode.Size())})
-		obj.Data = append(obj.Data,LIST...)
-		putObjInStore(&obj,store,h)
+		// hashes := getHashes(&lowobj)
+		// hash :=  computeMerkleRoot(hashes,h)
+		has := computeHash(json.Marshal(obj),h)
+		return hash,LIST...
 		}else{
 			hash := computeHash(FileNode.Bytes(), h)
-			obj.Links = append(obj.Links, Link{FileNode.Name(), hash, int(node.Size())})
-			obj.Data = append(obj.Data,BLOB...)
-			putObjInStore(&obj,store,h)
-			return hash
+			return hash,BLOB...
 		}
-	 return nil
+	
 }
 // 处理文件夹，返回默克尔树根
 func handleDir(node Node,store KVStore,h hash.Hash) []byte{
-	obj := Object{}
+	// define tree 
+
+	obj := Object{Links : make([]Link ,0),Data : make([]byte,0)}
 	dirNode,ok := node.(Dir)
 	if !ok {
 		return  nil
