@@ -181,7 +181,6 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 }
 
 func computeHash(data []byte, h hash.Hash) []byte {
-	h.Reset()
 	h.Write(data)
 	return h.Sum(nil)
 }
@@ -192,7 +191,7 @@ func putObjInStore(obj *Object, store KVStore, h hash.Hash){
 		return
 	}
 	hash := computeHash(value, h)
-	fmt.Println("put obj in store:",hash)
+	// fmt.Println("put obj in store:",hash)
 	store.Put(hash,value)
 	
 }
