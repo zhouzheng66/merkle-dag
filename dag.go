@@ -16,9 +16,6 @@ const (
 	LIST = "link"
 	TREE = "tree"
 )
-const (
-	
-)
 type Link struct {
 	Name string
 	Hash []byte
@@ -50,14 +47,10 @@ func processNode(node Node, store KVStore, h hash.Hash) []byte {
 	return computeHash(jsonObj,h)
 	
 }
- // 处理文件，返回一个该文件对应的obj
+// 处理文件，返回一个该文件对应的obj
 func handleFile(node Node,store KVStore,h hash.Hash) *Object{
 	obj := &Object{}
-	FileNode,ok := node.(File)
-		if !ok {
-			fmt.Println("error")
-		    return nil
-		}
+	FileNode,_:= node.(File)
 		if FileNode.Size() > CHUNK_SIZE {
 
 			// lowobj := Object{}
@@ -76,11 +69,12 @@ func handleFile(node Node,store KVStore,h hash.Hash) *Object{
 		obj,_ = dfshandleFile(height,FileNode,store,0,h)
 		}else{
 			obj.Data = FileNode.Bytes()
+			// putObjInStore(obj,store,h)
 			}
-		putObjInStore(obj,store,h)
 			return  obj
 	
 }
+
 // 处理文件夹，返回对应的obj指针
 func handleDir(node Node,store KVStore,h hash.Hash) *Object{
 	dirNode , _ := node.(Dir)
@@ -108,7 +102,6 @@ func handleDir(node Node,store KVStore,h hash.Hash) *Object{
 		case DIR :
 			dir := node.(Dir)
 			tmp := handleDir(node, store, h)
-			putObjInStore(tmp,store,h)
 			jsonMarshal, _ := json.Marshal(tmp)
 			treeObject.Links = append(treeObject.Links, Link{
 				Hash: computeHash(jsonMarshal,h),
@@ -154,13 +147,13 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 		})
 		obj.Data  = append(obj.Data,[]byte(BLOB)...)
 		lendata += len(data)
-		start = end
-		if start == len(node.Bytes()){
+		start += CHUNK_SIZE
+		if start >= len(node.Bytes()){
 		    break
 		}
-		putObjInStore(obj,store,h)
-		return obj,lendata
 	}
+	putObjInStore(obj,store,h)
+		return obj,lendata
 	}
  }else{
 	// 如果不只有一层
@@ -185,7 +178,6 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 	putObjInStore(obj,store,h)
 	return obj,lendata
  }
- return nil,0
 }
 
 func computeHash(data []byte, h hash.Hash) []byte {
@@ -200,28 +192,8 @@ func putObjInStore(obj *Object, store KVStore, h hash.Hash){
 		return
 	}
 	hash := computeHash(value, h)
+	fmt.Println("put obj in store:",hash)
 	store.Put(hash,value)
+	
 }
-// func computeMerkleRoot(data [][]byte, h hash.Hash) []byte {
-// 	if len(data) == 0{
-// 		return nil
-// 	}
-// 	if len(data) == 1{
-// 		return data[0]
-// 	}
-// 	var nextLevel [][]byte
-// 	// 对于相邻节点计算hash
-// 	for i := 0; i < len(data); i += 2 {
-// 	    // 确保不出界
-// 		end := i+2
-// 		if(end >len(data)){
-// 			end = len(data)
-// 		}
-// 		// 拼接两个叶子结点的hash
-// 		hash := computeHash(append(data[i], data[i+1]...), h)
-// 		nextLevel = append(nextLevel, hash[:])
-// 	}
-// 	// 递归计算下一层的默克尔树根
-// 	return computeMerkleRoot(nextLevel, h)
-// }
 

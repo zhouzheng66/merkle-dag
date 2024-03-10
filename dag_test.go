@@ -138,7 +138,7 @@ func TestDag(t *testing.T) {
 		mp: make(map[string][]byte),
 	}
 	h.Reset()
-	path := "/home/xiuuix/code"
+	path := "/Users/apple/Desktop/code/SA_2021131037"
 	files, _ := ioutil.ReadDir(path)
 	dir := &TestDir{
 		list: make([]Node, len(files)),
