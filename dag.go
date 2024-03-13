@@ -69,7 +69,7 @@ func handleFile(node Node,store KVStore,h hash.Hash) *Object{
 		obj,_ = dfshandleFile(height,FileNode,store,0,h)
 		}else{
 			obj.Data = FileNode.Bytes()
-			// putObjInStore(obj,store,h)
+			putObjInStore(obj,store,h)
 			}
 			return  obj
 	
@@ -156,7 +156,6 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 		return obj,lendata
 	}
  }else{
-	// 如果不只有一层
 	for i := 1 ;i<=MAX_LISTLINE;i++{
 		if start >= len(node.Bytes()){
 			break
@@ -181,6 +180,8 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 }
 
 func computeHash(data []byte, h hash.Hash) []byte {
+	
+	h.Reset()
 	h.Write(data)
 	return h.Sum(nil)
 }
@@ -191,6 +192,8 @@ func putObjInStore(obj *Object, store KVStore, h hash.Hash){
 		return
 	}
 	hash := computeHash(value, h)
+	has ,_ := store.Has(hash)
+	if has { return }
 	// fmt.Println("put obj in store:",hash)
 	store.Put(hash,value)
 	
