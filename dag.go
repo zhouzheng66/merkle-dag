@@ -29,11 +29,6 @@ type Object struct {
 
 func Add(store KVStore, node Node, h hash.Hash) []byte {
 	// TODO 将分片写入到KVStore中，并返回Merkle Root
-	return processNode(node, store, h)
-	
-}
-// 处理节点，返回默克尔树根
-func processNode(node Node, store KVStore, h hash.Hash) []byte {
 	obj := &Object{}
 	switch node.Type() {
 	case FILE:
@@ -47,14 +42,12 @@ func processNode(node Node, store KVStore, h hash.Hash) []byte {
 	return computeHash(jsonObj,h)
 	
 }
+
 // 处理文件，返回一个该文件对应的obj
 func handleFile(node Node,store KVStore,h hash.Hash) *Object{
 	obj := &Object{}
 	FileNode,_:= node.(File)
 		if FileNode.Size() > CHUNK_SIZE {
-
-			// lowobj := Object{}
-		    // 计算文件切片数量,向上取整
 		numChunks := math.Ceil(float64(FileNode.Size()) / float64(CHUNK_SIZE))
 		height := 0
 		tmp := numChunks
@@ -69,7 +62,7 @@ func handleFile(node Node,store KVStore,h hash.Hash) *Object{
 		obj,_ = dfshandleFile(height,FileNode,store,0,h)
 		}else{
 			obj.Data = FileNode.Bytes()
-			putObjInStore(obj,store,h)
+			putObjInStore(obj,store,h,BLOB)
 			}
 			return  obj
 	
@@ -112,7 +105,7 @@ func handleDir(node Node,store KVStore,h hash.Hash) *Object{
 			break
 		}
 	}
-	putObjInStore(treeObject,store,h)
+	putObjInStore(treeObject,store,h,LIST)
 	return treeObject
 }
 // 处理大文件的方法 递归调用，返回当前生成的obj已经处理了多少数据
@@ -125,7 +118,7 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 		data := node.Bytes()[start:]
 		obj.Data = append(obj.Data,data...)
 		lendata = len(data)
-		putObjInStore(obj,store,h)
+		putObjInStore(obj,store,h,BLOB)
 		return obj,lendata
 	}else{
 	for i := 1; i<= MAX_LISTLINE; i++{
@@ -139,7 +132,7 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 			Links : nil,
 			Data : data,
 		}
-		putObjInStore(&blobObj,store,h)
+		putObjInStore(&blobObj,store,h,BLOB)
 		jsonMarshal,_ := json.Marshal(blobObj)
 		obj.Links = append(obj.Links,Link{
 			Hash: computeHash(jsonMarshal,h),
@@ -152,10 +145,11 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 		    break
 		}
 	}
-	putObjInStore(obj,store,h)
+	putObjInStore(obj,store,h,LIST)
 		return obj,lendata
 	}
  }else{
+	// 如果不只有一层
 	for i := 1 ;i<=MAX_LISTLINE;i++{
 		if start >= len(node.Bytes()){
 			break
@@ -174,28 +168,36 @@ func dfshandleFile(height int, node File,store KVStore,start int,h hash.Hash) (*
 		}
 		start += tmpLendata
 	}
-	putObjInStore(obj,store,h)
+	putObjInStore(obj,store,h,LIST)
 	return obj,lendata
  }
 }
 
 func computeHash(data []byte, h hash.Hash) []byte {
-	
 	h.Reset()
 	h.Write(data)
 	return h.Sum(nil)
 }
-func putObjInStore(obj *Object, store KVStore, h hash.Hash){
+func putObjInStore(obj *Object, store KVStore, h hash.Hash,objType string){
+	
 	value,err := json.Marshal(obj)
 	if err != nil{
 		fmt.Println("json.Marshal err:",err)
 		return
 	}
+
 	hash := computeHash(value, h)
-	has ,_ := store.Has(hash)
-	if has { return }
+	flag,_ := store.Has(hash)
+	if flag {
+		return 
+	}
 	// fmt.Println("put obj in store:",hash)
-	store.Put(hash,value)
+	if objType == BLOB {
+		store.Put(hash,obj.Data)
+	}else{
+		store.Put(hash,value)
+	}
+	 
 	
 }
 
